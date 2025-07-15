@@ -1,0 +1,5 @@
+build/
+dist/
+main.spec
+main-gui.spec
+venv/
