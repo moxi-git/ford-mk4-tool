@@ -3,7 +3,10 @@
 
 # Activate virtual environment
 echo "Activating virtual environment..."
-source venv/bin/activate || { echo "Failed to activate virtual environment"; exit 1; }
+source .venv/bin/activate || {
+  echo "Failed to activate virtual environment"
+  exit 1
+}
 
 # Build the Python scripts
 echo "Building main.py..."
@@ -15,7 +18,10 @@ pyinstaller --onefile main-gui.py
 echo "Build complete!"
 
 # Change to the dist directory
-cd dist || { echo "dist/ directory not found"; exit 1; }
+cd dist || {
+  echo "dist/ directory not found"
+  exit 1
+}
 
 # Archive each executable with 7z
 echo "Creating 7z archives..."
