@@ -28,4 +28,9 @@ echo "Creating 7z archives..."
 7z a main.7z main
 7z a main-gui.7z main-gui
 
+echo "clean executables"
+
+rm -rf main
+rm -rf main-gui
+
 echo "7z archives created in dist/"
