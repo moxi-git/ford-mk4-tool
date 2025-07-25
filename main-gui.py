@@ -8,6 +8,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Pango
 import obd
 import serial
+import serial.tools.list_ports
 import threading
 import time
 from datetime import datetime
@@ -109,6 +110,69 @@ class MondeoResultsDialog:
         self.dialog.destroy()
         return response
 
+class MondeoPortSelectionDialog:
+    def __init__(self, parent, available_ports):
+        self.dialog = Gtk.Dialog(
+            title="Select Serial Port",
+            transient_for=parent,
+            modal=True
+        )
+        self.dialog.set_default_size(400, 250)
+        self.dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        self.dialog.add_button("Connect", Gtk.ResponseType.OK)
+
+        content = self.dialog.get_content_area()
+        content.set_border_width(20)
+
+        # Add instruction label
+        label = Gtk.Label(label="Select the serial port for your OBD-II adapter:")
+        label.set_halign(Gtk.Align.START)
+        content.pack_start(label, False, False, 10)
+
+        # Create scrolled window for port list
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_size_request(-1, 150)
+
+        # Create list store and tree view
+        self.liststore = Gtk.ListStore(str, str)
+        self.treeview = Gtk.TreeView(model=self.liststore)
+        
+        # Add columns
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Port", renderer, text=0)
+        self.treeview.append_column(column)
+        
+        renderer2 = Gtk.CellRendererText()
+        column2 = Gtk.TreeViewColumn("Description", renderer2, text=1)
+        self.treeview.append_column(column2)
+
+        # Populate with available ports
+        for port in available_ports:
+            self.liststore.append([port.device, port.description])
+
+        # Select first port by default
+        if available_ports:
+            selection = self.treeview.get_selection()
+            selection.select_path(0)
+
+        scrolled.add(self.treeview)
+        content.pack_start(scrolled, True, True, 0)
+
+        self.dialog.show_all()
+        self.selected_port = None
+
+    def run(self):
+        response = self.dialog.run()
+        if response == Gtk.ResponseType.OK:
+            selection = self.treeview.get_selection()
+            model, treeiter = selection.get_selected()
+            if treeiter:
+                self.selected_port = model[treeiter][0]
+        
+        self.dialog.destroy()
+        return response, self.selected_port
+
 class MondeoMainWindow:
     def __init__(self):
         self.connection = None
@@ -118,7 +182,7 @@ class MondeoMainWindow:
     def setup_ui(self):
         # Main window
         self.window = Gtk.Window(title="Ford Mondeo Mk4 1.8 TDCi Diagnostics")
-        self.window.set_default_size(500, 400)
+        self.window.set_default_size(500, 450)
         self.window.set_position(Gtk.WindowPosition.CENTER)
         self.window.connect("destroy", Gtk.main_quit)
 
@@ -131,7 +195,7 @@ class MondeoMainWindow:
 
         # Title
         title_label = Gtk.Label()
-        title_label.set_markup("<span size='large' weight='bold'>🚗 Ford Mondeo Mk4 1.8 TDCi Diagnostics</span>")
+        title_label.set_markup("<span size='large' weight='bold'>Ford Mondeo Mk4 1.8 TDCi Diagnostics</span>")
         title_label.set_halign(Gtk.Align.CENTER)
         header_box.pack_start(title_label, False, False, 0)
 
@@ -151,19 +215,25 @@ class MondeoMainWindow:
         button_box.set_halign(Gtk.Align.CENTER)
 
         # Read DTCs button
-        self.read_button = Gtk.Button(label="📋 Read Diagnostic Trouble Codes")
+        self.read_button = Gtk.Button(label="Read Diagnostic Trouble Codes")
         self.read_button.set_size_request(300, 50)
         self.read_button.connect("clicked", self.on_read_codes)
         button_box.pack_start(self.read_button, False, False, 0)
 
         # Clear DTCs button
-        self.clear_button = Gtk.Button(label="🧹 Clear Diagnostic Trouble Codes")
+        self.clear_button = Gtk.Button(label="Clear Diagnostic Trouble Codes")
         self.clear_button.set_size_request(300, 50)
         self.clear_button.connect("clicked", self.on_clear_codes)
         button_box.pack_start(self.clear_button, False, False, 0)
 
+        # Select port button
+        self.port_button = Gtk.Button(label="Select Serial Port")
+        self.port_button.set_size_request(300, 50)
+        self.port_button.connect("clicked", self.on_select_port)
+        button_box.pack_start(self.port_button, False, False, 0)
+
         # Reconnect button
-        self.reconnect_button = Gtk.Button(label="🔄 Reconnect to Vehicle")
+        self.reconnect_button = Gtk.Button(label="Reconnect to Vehicle")
         self.reconnect_button.set_size_request(300, 50)
         self.reconnect_button.connect("clicked", self.on_reconnect)
         button_box.pack_start(self.reconnect_button, False, False, 0)
@@ -184,7 +254,7 @@ class MondeoMainWindow:
         footer_box.pack_start(info_label, False, False, 0)
 
         # Exit button
-        exit_button = Gtk.Button(label="❌ Exit")
+        exit_button = Gtk.Button(label="Exit")
         exit_button.set_size_request(100, 30)
         exit_button.set_halign(Gtk.Align.CENTER)
         exit_button.connect("clicked", self.on_exit)
@@ -208,23 +278,62 @@ class MondeoMainWindow:
         """Update the connection status display"""
         if self.connection and self.connection.is_connected():
             port_name = self.connection.port_name()
-            self.status_label.set_markup(f"<span color='green' weight='bold'>✅ Connected to {port_name}</span>")
+            self.status_label.set_markup(f"<span color='green' weight='bold'>CONNECTED to {port_name}</span>")
             self.read_button.set_sensitive(True)
             self.clear_button.set_sensitive(True)
         else:
-            self.status_label.set_markup("<span color='red' weight='bold'>❌ Not Connected</span>")
+            self.status_label.set_markup("<span color='red' weight='bold'>NOT CONNECTED</span>")
             self.read_button.set_sensitive(False)
             self.clear_button.set_sensitive(False)
 
-    def connect_to_obd(self):
+    def get_available_ports(self):
+        """Get list of available serial ports"""
+        try:
+            ports = list(serial.tools.list_ports.comports())
+            # Filter for likely OBD-II adapters
+            obd_ports = []
+            for port in ports:
+                # Common OBD-II adapter descriptions
+                desc_lower = port.description.lower()
+                if any(keyword in desc_lower for keyword in ['usb', 'serial', 'ch340', 'ftdi', 'cp210', 'obd']):
+                    obd_ports.append(port)
+            
+            return obd_ports if obd_ports else ports
+        except Exception as e:
+            print(f"Error listing ports: {e}")
+            return []
+
+    def connect_to_obd(self, selected_port=None):
         """Connect to OBD-II adapter"""
         def connect_worker():
             try:
-                conn = obd.OBD()  # auto connect
+                if selected_port:
+                    # Try connecting to specific port
+                    conn = obd.OBD(selected_port, baudrate=38400, timeout=30)
+                else:
+                    # Try auto-connect
+                    conn = obd.OBD(baudrate=38400, timeout=30)
+                
                 if conn.is_connected():
                     GLib.idle_add(self.connection_success, conn)
                 else:
-                    GLib.idle_add(self.connection_failed, "No connection detected. Check ignition and adapter.")
+                    # If auto-connect failed, try different baudrates
+                    for baudrate in [38400, 9600, 115200, 57600]:
+                        try:
+                            if selected_port:
+                                conn = obd.OBD(selected_port, baudrate=baudrate, timeout=30)
+                            else:
+                                conn = obd.OBD(baudrate=baudrate, timeout=30)
+                            
+                            if conn.is_connected():
+                                GLib.idle_add(self.connection_success, conn)
+                                return
+                            else:
+                                conn.close()
+                        except:
+                            continue
+                    
+                    GLib.idle_add(self.connection_failed, "No connection detected. Check ignition, adapter, and cable.")
             except Exception as e:
                 GLib.idle_add(self.connection_failed, f"Connection failed: {str(e)}")
 
@@ -256,6 +365,45 @@ class MondeoMainWindow:
         )
         dialog.run()
         return False
+
+    def on_select_port(self, button):
+        """Handle select port button click"""
+        available_ports = self.get_available_ports()
+        
+        if not available_ports:
+            dialog = MondeoDialogWindow(
+                self.window,
+                "No Ports Found",
+                "No serial ports detected. Please check that your OBD-II adapter is connected.",
+                "error"
+            )
+            dialog.run()
+            return
+
+        # Show port selection dialog
+        port_dialog = MondeoPortSelectionDialog(self.window, available_ports)
+        response, selected_port = port_dialog.run()
+
+        if response == Gtk.ResponseType.OK and selected_port:
+            # Close existing connection
+            if self.connection:
+                try:
+                    self.connection.close()
+                except:
+                    pass
+                self.connection = None
+
+            self.update_connection_status()
+
+            # Show progress dialog
+            self.progress_dialog = MondeoProgressDialog(
+                self.window,
+                "Connecting",
+                f"Connecting to {selected_port}..."
+            )
+
+            # Start connection with selected port
+            self.connect_to_obd(selected_port)
 
     def on_read_codes(self, button):
         """Handle read DTCs button click"""
@@ -310,7 +458,7 @@ class MondeoMainWindow:
             dialog = MondeoDialogWindow(
                 self.window,
                 "No DTCs Found",
-                "✅ No diagnostic trouble codes detected. Vehicle systems appear normal.",
+                "No diagnostic trouble codes detected. Vehicle systems appear normal.",
                 "info"
             )
             dialog.run()
@@ -372,7 +520,7 @@ class MondeoMainWindow:
             dialog = MondeoDialogWindow(
                 self.window,
                 "DTCs Cleared",
-                "✅ Diagnostic trouble codes have been successfully cleared!",
+                "Diagnostic trouble codes have been successfully cleared!",
                 "info"
             )
             dialog.run()
@@ -380,7 +528,7 @@ class MondeoMainWindow:
             dialog = MondeoDialogWindow(
                 self.window,
                 "Clear Failed",
-                "❌ Failed to clear diagnostic trouble codes. Please try again.",
+                "Failed to clear diagnostic trouble codes. Please try again.",
                 "error"
             )
             dialog.run()

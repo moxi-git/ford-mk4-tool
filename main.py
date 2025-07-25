@@ -6,9 +6,8 @@ Ford Mondeo Mk4 2007 TDCi Full Diagnostics Tool
 """
 
 import obd
-import serial
+import serial.tools.list_ports
 import os
-import time
 from time import sleep
 
 # NerdFont Icons
@@ -24,7 +23,7 @@ NF = {
     "reconnect": "󰴽"
 }
 
-# Set log level
+# Set log level (change to DEBUG if you want verbose logs)
 obd.logger.setLevel(obd.logging.ERROR)
 
 # === Utility ===
@@ -34,18 +33,49 @@ def clear():
 def pause():
     input(f"\n⏸️  Press Enter to continue...")
 
-# === OBD Connection ===
+# === Serial Port Listing ===
+def list_serial_ports():
+    ports = serial.tools.list_ports.comports()
+    if not ports:
+        print(f"{NF['error']} No serial ports found.")
+    else:
+        print("Available serial ports:")
+        for i, port in enumerate(ports):
+            print(f"  [{i}] {port.device} - {port.description}")
+    return ports
+
+# === OBD Connection with port selection ===
 def connect():
     print(f"{NF['link']} Connecting to OBD-II...")
+
+    ports = list_serial_ports()
+    if not ports:
+        return None
+
+    port = None
+    if len(ports) > 1:
+        choice = input("Select serial port index or press Enter to auto-connect: ").strip()
+        if choice.isdigit() and int(choice) < len(ports):
+            port = ports[int(choice)].device
+    else:
+        port = ports[0].device
+
     try:
-        conn = obd.OBD()  # auto connect
+        if port:
+            print(f"Trying port {port} ...")
+            conn = obd.OBD(port)  # connect to chosen port, default baudrate 9600
+        else:
+            print("Auto-connecting...")
+            conn = obd.OBD()  # auto connect
+
         if conn.is_connected():
             print(f"{NF['ok']} Connected to {conn.port_name()}")
             return conn
         else:
             print(f"{NF['error']} No connection. Check ignition and adapter.")
     except Exception as e:
-        print(f"{NF['error']} Failed: {e}")
+        print(f"{NF['error']} Failed to connect: {e}")
+
     return None
 
 # === Diagnostics ===
@@ -104,3 +134,4 @@ def menu(conn):
 if __name__ == "__main__":
     connection = connect()
     menu(connection)
+
