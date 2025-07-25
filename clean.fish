@@ -2,5 +2,5 @@
 # clean.fish - Remove PyInstaller or setuptools build artifacts
 
 echo "Cleaning build artifacts..."
-rm -rf build dist *.spec __pycache__ *.pyc *.pyo
+rm -rf build/ dist/ *.spec __pycache__
 echo "Clean complete."
